@@ -15,6 +15,9 @@ from ip_adapter.custom_pipelines import StableDiffusionXLCustomPipeline
 import insightface
 import onnxruntime
 from insightface.app import FaceAnalysis
+from gfpgan import GFPGANer
+from basicsr.archs.srvgg_arch import SRVGGNetCompact
+from realesrgan.utils import RealESRGANer
 
 base_model_path = "stabilityai/stable-diffusion-xl-base-1.0"
 image_encoder_path = "/IP-Adapter/models/image_encoder/"
@@ -39,11 +42,49 @@ class Predictor(BasePredictor):
             cache_dir=MODEL_CACHE,
         )
 
+        if not os.path.exists("gfpgan/weights/realesr-general-x4v3.pth"):
+            os.system(
+                "wget https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesr-general-x4v3.pth -P ./gfpgan/weights"
+            )
+        if not os.path.exists("gfpgan/weights/GFPGANv1.4.pth"):
+            os.system(
+                "wget https://github.com/TencentARC/GFPGAN/releases/download/v1.3.0/GFPGANv1.4.pth -P ./gfpgan/weights"
+            )
+
+        # background enhancer with RealESRGAN
+        model = SRVGGNetCompact(
+            num_in_ch=3,
+            num_out_ch=3,
+            num_feat=64,
+            num_conv=32,
+            upscale=4,
+            act_type="prelu",
+        )
+        model_path = "gfpgan/weights/realesr-general-x4v3.pth"
+        half = True if torch.cuda.is_available() else False
+        self.upsampler = RealESRGANer(
+            scale=2,
+            model_path=model_path,
+            model=model,
+            tile=0,
+            tile_pad=10,
+            pre_pad=0,
+            half=half,
+        )
+
         self.face_swapper = insightface.model_zoo.get_model(
             "cache/inswapper_128.onnx", providers=onnxruntime.get_available_providers()
         )
         self.face_analyser = FaceAnalysis(name="buffalo_l")
-        self.face_analyser.prepare(ctx_id=0, det_thresh=0.5, det_size=(640, 640))
+        self.face_analyser.prepare(ctx_id=0, det_thresh=0.1, det_size=(640, 640))
+
+        self.face_enhancer = GFPGANer(
+            model_path="gfpgan/weights/GFPGANv1.4.pth",
+            upscale=1,
+            arch="clean",
+            channel_multiplier=2,
+            bg_upsampler=self.upsampler,
+        )
 
     def get_face(self, img_data, image_type="target"):
         try:

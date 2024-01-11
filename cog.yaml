@@ -13,6 +13,8 @@ build:
     - "git+https://github.com/tencent-ailab/IP-Adapter.git"
     - "insightface==0.7.3"
     - "onnxruntime-gpu"
+    - "gfpgan"
+    - "realesrgan"
 
   run:
     - "mkdir -p ~/.insightface/models/buffalo_l/"
